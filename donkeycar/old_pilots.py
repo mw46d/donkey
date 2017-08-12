@@ -95,12 +95,15 @@ class PilotHandler():
         #pilot_list.append(OpenCVLineDetector(name='OpenCV'))
         return pilot_list
 
-    def run(self, img_arr, throttle, angle, speed):
+    def run(self, img_arr, throttle, angle, speed, brake):
         if PilotHandler.active_pilot == None:
             return throttle, angle, speed
         else:
-            with PilotHandler.active_pilot.graph.as_default():
-                return PilotHandler.active_pilot.decide(img_arr)
+            if brake:
+                return 0.0, 0.0, 0.0
+            else:
+                with PilotHandler.active_pilot.graph.as_default():
+                    return PilotHandler.active_pilot.decide(img_arr)
 
     def shutdown(self):
         # indicate that the thread should be stopped

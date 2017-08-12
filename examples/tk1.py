@@ -21,12 +21,12 @@ V.add(speed_controller, outputs = [ 'odo/speed' ], threaded = True)
 ctr = dk.parts.LocalWebController()
 V.add(ctr,
       inputs = [ 'cam/image_array', 'rcin/angle', 'rcin/throttle' ],
-      outputs = [ 'user/angle', 'user/throttle', 'user/mode', 'user/recording' ],
+      outputs = [ 'user/angle', 'user/throttle', 'user/mode', 'user/recording', 'user/brake' ],
       threaded = True)
 
 ph = dk.old_pilots.PilotHandler()
 V.add(ph,
-      inputs = [ 'cam/image_array', 'user/throttle', 'user/angle', 'odo/speed' ],
+      inputs = [ 'cam/image_array', 'user/throttle', 'user/angle', 'odo/speed', 'user/brake' ],
       outputs = [ 'target/throttle', 'target/angle', 'target/speed' ])
 
 steering_controller = dk.parts.Teensy('S')

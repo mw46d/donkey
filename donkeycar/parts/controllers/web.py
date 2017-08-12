@@ -121,6 +121,7 @@ class LocalWebController(tornado.web.Application):
         self.throttle = 0.0
         self.mode = 'user'
         self.recording = False
+        self.brake = False
         self.pilot = None
 
         ph = old_pilots.PilotHandler(self.models_path)
@@ -158,7 +159,7 @@ class LocalWebController(tornado.web.Application):
                 self.throttle = rcin_throttle
 
         # print(self.angle)
-        return self.angle, self.throttle, self.mode, self.recording
+        return self.angle, self.throttle, self.mode, self.recording, self.brake
 
     def shutdown(self):
         # indicate that the thread should be stopped
@@ -182,6 +183,7 @@ class DriveAPI(tornado.web.RequestHandler):
         self.application.throttle = data['throttle']
         self.application.mode = data['drive_mode']
         self.application.recording = data['recording']
+        self.application.brake = data['brake']
         if self.application.mode != 'user' and self.application.pilot != None:
             old_pilots.PilotHandler.active_pilot = self.application.pilot
         else:
