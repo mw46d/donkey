@@ -24,6 +24,11 @@ V.add(ctr,
       outputs = [ 'user/angle', 'user/throttle', 'user/mode', 'user/recording' ],
       threaded = True)
 
+ph = dk.old_pilots.PilotHandler()
+V.add(ph,
+      inputs = [ 'cam/image_array', 'user/throttle', 'user/angle', 'odo/speed' ],
+      outputs = [ 'target/throttle', 'target/angle', 'target/speed' ])
+
 steering_controller = dk.parts.Teensy('S')
 steering = dk.parts.PWMSteering(controller = steering_controller,
                                 left_pulse = 496, right_pulse = 242)
@@ -32,13 +37,13 @@ throttle_controller = dk.parts.Teensy('T')
 throttle = dk.parts.PWMThrottle(controller = throttle_controller,
                                 max_pulse = 496, zero_pulse = 369, min_pulse = 242)
 
-V.add(steering, inputs = [ 'user/angle', 'user/mode' ])
-V.add(throttle, inputs = [ 'user/throttle', 'user/mode' ])
+V.add(steering, inputs = [ 'target/angle', 'user/mode' ])
+V.add(throttle, inputs = [ 'target/throttle', 'user/mode' ])
 
 #add tub to save data
 path = '~/mydonkey/sessions/' + datetime.now().strftime('%Y_%m_%d__%H_%M_%S')
-inputs = [ 'user/angle', 'user/throttle', 'cam/image_array', 'user/mode', 'odo/speed', 'user/recording' ]
-types = [ 'float', 'float', 'image_array', 'str', 'float', 'boolean' ]
+inputs = [ 'target/angle', 'target/throttle', 'cam/image_array', 'user/mode', 'odo/speed', 'target/speed', 'user/recording' ]
+types = [ 'float', 'float', 'image_array', 'str', 'float', 'float', 'boolean' ]
 tub = dk.parts.OriginalWriter(path, inputs = inputs, types = types)
 V.add(tub, inputs = inputs)
 

@@ -10,16 +10,21 @@ remotes.py
 The client and web server needed to control a car remotely.
 """
 
-
+import io
 import os
 import json
+import math
 import time
+
+from PIL import Image
 
 import requests
 import tornado.ioloop
 import tornado.web
 import tornado.gen
 
+from ... import old_pilots
+from ... import sessions
 from ... import utils
 
 
@@ -116,6 +121,10 @@ class LocalWebController(tornado.web.Application):
         self.throttle = 0.0
         self.mode = 'user'
         self.recording = False
+        self.pilot = None
+
+        ph = old_pilots.PilotHandler(self.models_path)
+        self.pilots = ph.default_pilots()
 
         handlers = [
             (r"/drive", DriveAPI),
@@ -126,6 +135,7 @@ class LocalWebController(tornado.web.Application):
             (r"/session_image/?(?P<session_id>[^/]+)?/?(?P<img_name>[^/]+)?",
                 SessionImageView),
             (r"/static/(.*)", tornado.web.StaticFileHandler, {"path": self.static_file_path}),
+            (r"/pilot", PilotAPI),
             ]
 
         settings = {'debug': True}
@@ -143,10 +153,11 @@ class LocalWebController(tornado.web.Application):
         self.img_arr = img_arr
 
         if self.mode == 'user':
-            self.angle = rcin_angle
-            self.throttle = rcin_throttle
+            if rcin_angle != 0.0 or rcin_throttle != 0.0:
+                self.angle = rcin_angle
+                self.throttle = rcin_throttle
 
-        print(self.angle)
+        # print(self.angle)
         return self.angle, self.throttle, self.mode, self.recording
 
     def shutdown(self):
@@ -157,7 +168,8 @@ class LocalWebController(tornado.web.Application):
 class DriveAPI(tornado.web.RequestHandler):
 
     def get(self):
-        data = {}
+        pilots = self.application.pilots
+        data = { 'pilots': pilots }
         self.render("templates/vehicle.html", **data)
 
     def post(self):
@@ -170,7 +182,23 @@ class DriveAPI(tornado.web.RequestHandler):
         self.application.throttle = data['throttle']
         self.application.mode = data['drive_mode']
         self.application.recording = data['recording']
+        if self.application.mode != 'user' and self.application.pilot != None:
+            old_pilots.PilotHandler.active_pilot = self.application.pilot
+        else:
+            old_pilots.PilotHandler.active_pilot = None
 
+class PilotAPI(tornado.web.RequestHandler):
+    def post(self):
+        data = tornado.escape.json_decode(self.request.body)
+        print('pilot request')
+        print(data)
+        pilot = next(filter(lambda p: p.name == data['pilot'], self.application.pilots))
+        pilot.load()
+        self.application.pilot = pilot
+        if self.application.mode != 'user' and self.application.pilot != None:
+            old_pilots.PilotHandler.active_pilot = self.application.pilot
+        else:
+            old_pilots.PilotHandler.active_pilot = None
 
 class VideoAPI(tornado.web.RequestHandler):
     '''
@@ -250,7 +278,7 @@ class SessionView(tornado.web.RequestHandler):
 
         sessions_path = self.application.sessions_path
         path = os.path.join(sessions_path, session_id)
-        imgs = [dk.utils.merge_two_dicts({'name':f.name}, dk.sessions.parse_img_filepath(f.path)) for f in scandir(path) if f.is_file() and f.name[-3:] =='jpg' ]
+        imgs = [utils.merge_two_dicts({'name':f.name}, sessions.parse_img_filepath(f.path)) for f in scandir(path) if f.is_file() and f.name[-3:] =='jpg' ]
         img_count = len(imgs)
 
         perpage = 500

@@ -33,10 +33,12 @@ var driveHandler = new function() {
     var vehicle_id = ""
     var driveURL = ""
     var vehicleURL = ""
+    var pilotURL = ""
 
     this.load = function() {
       driveURL = '/drive'
       vehicleURL = '/drive'
+      pilotURL = '/pilot'
 
       setBindings()
 
@@ -159,7 +161,7 @@ var driveHandler = new function() {
 
     var postPilot = function(){
         data = JSON.stringify({ 'pilot': state.pilot })
-        $.post(vehicleURL, data)
+        $.post(pilotURL, data)
     }
 
 
