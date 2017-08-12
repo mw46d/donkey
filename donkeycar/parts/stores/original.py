@@ -93,12 +93,14 @@ class OriginalWriter:
                 key = self.orig['inputs'][i]
 
                 if typ in [ 'float' ]:
-                    if key == 'user/angle':
+                    if key == 'target/angle':
                         self.out['angle'] = val
-                    elif key == 'user/throttle':
+                    elif key == 'target/throttle':
                         self.out['trottle'] = val
                     elif key == 'odo/speed':
                         self.out['extra']['speed'] = val
+                    elif key == 'target/speed':
+                        self.out['extra']['target_speed'] = val
                 elif typ is 'str':
                     if key == 'user/mode':
                         self.out['extra']['mode'] = val

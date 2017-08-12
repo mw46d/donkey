@@ -52,18 +52,18 @@ class KerasCategorical(BasePilot):
             speed = speed[0][0]
         else:
             angle_binned, throttle = l
-            speed = 'NaN'
+            speed = 0.0
         # angle_binned, throttle = self.model.predict(img_arr)
         angle_certainty = max(angle_binned[0])
         angle_unbinned = utils.unbin_Y(angle_binned)
-        return angle_unbinned[0], throttle[0][0], speed
+        return float(angle_unbinned[0]), float(throttle[0][0]), float(speed)
 
     def load(self):
         self.model = keras.models.load_model(self.model_path)
         self.model._make_predict_function()
         self.graph = tf.get_default_graph()
-        print("Model= ")
-        self.model.summary()
+        # print("Model= ")
+        # self.model.summary()
 
 
 class PilotHandler():
@@ -103,7 +103,9 @@ class PilotHandler():
                 return 0.0, 0.0, 0.0
             else:
                 with PilotHandler.active_pilot.graph.as_default():
-                    return PilotHandler.active_pilot.decide(img_arr)
+                    a, t, s =  PilotHandler.active_pilot.decide(img_arr)
+                    print("pilot values= t= %s(%s)  a= %s(%s)  s= %s(%s)" % (type(t), str(t), type(a), str(a), type(s), str(s)))
+                    return t, a, s
 
     def shutdown(self):
         # indicate that the thread should be stopped

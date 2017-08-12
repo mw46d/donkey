@@ -308,11 +308,11 @@ var driveHandler = new function() {
             state.tele.user.angle = joystickX;
             state.tele.user.throttle = limitedThrottle((joystickY * -1));
 
-            if (state.tele.user.throttle == 0 && state.tele.user.throttle == 0) {
-              state.brakeOn = true;
-            } else {
-              state.brakeOn = false;
-            }
+            // if (state.tele.user.throttle == 0 && state.tele.user.throttle == 0) {
+            //   state.brakeOn = true;
+            // } else {
+            //   state.brakeOn = false;
+            // }
 
             if (state.tele.user.throttle != 0) {
               state.recording = true;
@@ -431,6 +431,9 @@ var driveHandler = new function() {
       if (state.brakeOn) {
         brake();
       }
+
+      postDrive()
+      updateUI();
     };
 
     var brake = function(i){

@@ -5,7 +5,7 @@ import time
 
 class AStarSpeed:
     def __init__(self):
-        self.speed = 0
+        self.speed = 0.0
         self.linaccel = None
 
         self.sensor = dk.parts.Teensy(0);
