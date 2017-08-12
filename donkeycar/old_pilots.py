@@ -15,6 +15,7 @@ from operator import itemgetter
 from datetime import datetime
 
 import numpy as np
+import tensorflow as tf
 import keras
 
 import donkeycar.utils as utils
@@ -37,13 +38,11 @@ class BasePilot():
         pass
 
 
-
 class KerasCategorical(BasePilot):
     def __init__(self, model_path, **kwargs):
         self.model_path = model_path
         self.model = None #load() loads the model
         super().__init__(**kwargs)
-
 
     def decide(self, img_arr):
         img_arr = img_arr.reshape((1,) + img_arr.shape)
@@ -59,12 +58,12 @@ class KerasCategorical(BasePilot):
         angle_unbinned = utils.unbin_Y(angle_binned)
         return angle_unbinned[0], throttle[0][0], speed
 
-
     def load(self):
         self.model = keras.models.load_model(self.model_path)
+        self.model._make_predict_function()
+        self.graph = tf.get_default_graph()
         print("Model= ")
         self.model.summary()
-
 
 
 class PilotHandler():
@@ -76,7 +75,6 @@ class PilotHandler():
     def __init__(self, models_path = '~/mydonkey/models'):
         self.models_path = os.path.expanduser(models_path)
         self.active_pilot = None
-
 
     def pilots_from_models(self):
         """ Load pilots from keras models saved in the models directory. """
@@ -91,7 +89,6 @@ class PilotHandler():
         print (pilot_list)
         return pilot_list
 
-
     def default_pilots(self):
         """ Load pilots from models and add CV pilots """
         pilot_list = self.pilots_from_models()
@@ -102,13 +99,9 @@ class PilotHandler():
         if PilotHandler.active_pilot == None:
             return throttle, angle, speed
         else:
-            PilotHandler.active_pilot.model.summary()
-            return PilotHandler.active_pilot.decide(img_arr)
+            with PilotHandler.active_pilot.graph.as_default():
+                return PilotHandler.active_pilot.decide(img_arr)
 
     def shutdown(self):
         # indicate that the thread should be stopped
         print('stopping PilotHandler')
-
-
-
-
