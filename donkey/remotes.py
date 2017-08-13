@@ -24,7 +24,12 @@ from PIL import Image
 
 
 import donkey as dk
+import donkey.sessions
 
+if hasattr(os, 'scandir'):
+    from os import scandir
+else:
+    from scandir import scandir
 
 class RemoteClient():
     '''
@@ -81,6 +86,9 @@ class RemoteClient():
                                 self.state['throttle'],
                                 self.state['milliseconds'],
                                 self.state['extra'])
+
+            # print("mw response= " + str(resp))
+
             if len(resp) == 4:
                 angle, throttle, drive_mode, extra = resp
             else:
@@ -157,7 +165,7 @@ class RemoteClient():
         self.log('{}, {} \n'.format(datetime.now().time() , lag ))
         #print('remote lag: %s' %lag)
         if r.status_code != 200:
-            print("Failed request! Code: " + r.status_code)
+            print("Failed request! Code: " + str(r.status_code))
             return angle, throttle * .8, None
 
         data = json.loads(r.text)
@@ -256,7 +264,7 @@ class DonkeyPilotApplication(tornado.web.Application):
 
         if vehicle_id not in self.vehicles:
             print('new vehicle')
-            sh = dk.sessions.SessionHandler(self.sessions_path)
+            sh = donkey.sessions.SessionHandler(self.sessions_path)
             self.vehicles[vehicle_id] = dict({
                         'id': vehicle_id,
                         'user_angle': 0,
@@ -507,10 +515,8 @@ class SessionListView(tornado.web.RequestHandler):
         Serves a page showing a list of all the session folders.
         TODO: Move this list creation to the session handler.
         '''
-
-        session_dirs = [f for f in os.scandir(self.application.sessions_path) if f.is_dir() ]
+        session_dirs = [f for f in scandir(self.application.sessions_path) if f.is_dir() ]
         data = {'session_dirs': sorted(session_dirs, key = lambda d: d.name, reverse = True)}
-        print("session dirs= " + str(data))
         self.render("templates/session_list.html", **data)
 
 
@@ -519,13 +525,14 @@ class SessionView(tornado.web.RequestHandler):
 
     def get(self, session_id, page):
         '''
-        Shows all the images saved in the session. 
-        '''    
+        Shows all the images saved in the session.
+        '''
         from operator import itemgetter
+        from scandir import scandir
 
         sessions_path = self.application.sessions_path
         path = os.path.join(sessions_path, session_id)
-        imgs = [dk.utils.merge_two_dicts({'name':f.name}, dk.sessions.parse_img_filepath(f.path)) for f in os.scandir(path) if f.is_file() and f.name[-3:] =='jpg' ]
+        imgs = [dk.utils.merge_two_dicts({'name':f.name}, donkey.sessions.parse_img_filepath(f.path)) for f in scandir(path) if f.is_file() and f.name[-3:] =='jpg' ]
         img_count = len(imgs)
 
         perpage = 500

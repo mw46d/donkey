@@ -247,7 +247,6 @@ class MaestroSpeed(BaseSpeed):
                         period = 0.1
 
                     self.speed = 0.377 * (float(value) / 40) / period   # now in m/s
-                    print("mw speed= " + str(self.speed))
                 else:
                     m = linaccel_pattern.match(l.decode('utf-8'))
 

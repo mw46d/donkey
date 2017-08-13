@@ -7,6 +7,7 @@ sensors, actuators, pilots and remotes.
 
 import math
 import time
+import sys
 
 NaN = float('nan')
 RC = 1.0 / (2.0 * math.pi * 20.0)
@@ -125,7 +126,9 @@ class BaseVehicle:
         self.actuator_mixer = actuator_mixer
         self.pilot = pilot
         self.remote = remote
-        self.throttle_pid = PID(0.7, 0.2, 0.2)
+        # self.throttle_pid = PID(0.7, 0.2, 0.2)
+        self.throttle_pid = PID(0.7, 0.2, 0.8)
+        # self.throttle_pid = PID(0.5, 0., 0.)
 
     def constrain(self, v, nmin, nmax):
         return max(min(nmax, v), nmin)
@@ -135,6 +138,7 @@ class BaseVehicle:
         angle = 0.
         throttle = 0.
         pid_throttle = 0.
+        check_time = 0
 
         #drive loop
         while True:
@@ -157,6 +161,7 @@ class BaseVehicle:
                                                  throttle,
                                                  milliseconds,
                                                  extra = extra)
+            # print("mw drive loop angle= %s  throttle= %s  drive_mode= %s  drive= %s" % (angle, throttle, drive_mode, drive))
 
             if drive_mode == 'local':
                 angle, throttle, pilot_speed = self.pilot.decide(img_arr)
@@ -171,9 +176,25 @@ class BaseVehicle:
                 pid_throttle = throttle
             else:
                 if drive:
-                    e = 1.5 - speed
+                    if pid_throttle == 0:
+                        pid_throttle = 100
+
+                    e = 2.0 - speed
                     pid_throttle += self.throttle_pid.get_pid(e, 5.0)
-                    pid_throttle = self.constrain(pid_throttle, -500.0, 500.0)
+
+                    # Try to avoid run-away when I don't get a speed reading for too long
+                    if pid_throttle > 200 and speed == 0:
+                        if check_time == 0:
+                            check_time = start
+                        elif check_time > 3:
+                            # Emergency kill
+                            self.actuator_mixer.update(0, 0)
+                            time.sleep(100)
+                            sys.exit(1)
+                    else:
+                        check_time = 0
+
+                    pid_throttle = self.constrain(pid_throttle, -250.0, 250.0)
                     throttle = pid_throttle / 1000.
                 else:
                     self.throttle_pid.reset_i()

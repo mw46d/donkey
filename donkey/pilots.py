@@ -2,10 +2,10 @@
 
 pilots.py
 
-Methods to create, use, save and load pilots. Pilots 
+Methods to create, use, save and load pilots. Pilots
 contain the highlevel logic used to determine the angle
-and throttle of a vehicle. Pilots can include one or more 
-models to help direct the vehicles motion. 
+and throttle of a vehicle. Pilots can include one or more
+models to help direct the vehicles motion.
 
 '''
 import os
@@ -13,6 +13,11 @@ import math
 import random
 from operator import itemgetter
 from datetime import datetime
+
+if hasattr(os, 'scandir'):
+    from os import scandir
+else:
+    from scandir import scandir
 
 import numpy as np
 import keras
@@ -66,16 +71,16 @@ class KerasCategorical(BasePilot):
 
 
 class PilotHandler():
-    """ 
-    Convenience class to load default pilots 
+    """
+    Convenience class to load default pilots
     """
     def __init__(self, models_path):
         self.models_path = os.path.expanduser(models_path)
-        
-        
+
+
     def pilots_from_models(self):
         """ Load pilots from keras models saved in the models directory. """
-        models_list = [f for f in os.scandir(self.models_path)]
+        models_list = [f for f in scandir(self.models_path)]
         pilot_list = []
         for d in models_list:
             last_modified = datetime.fromtimestamp(d.stat().st_mtime)
