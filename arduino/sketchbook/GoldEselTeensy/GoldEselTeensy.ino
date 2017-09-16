@@ -279,7 +279,7 @@ void loop() {
           // Serial.print("Speed= "); Serial.println(currentSpeed);
 
           pidThrottle += throttlePid.get_pid(e, 5.0);
-          pidThrottle = fconstrain(pidThrottle, -250.0, 250.0);
+          pidThrottle = fconstrain(pidThrottle, -500.0, 500.0);
 
           float t = pidThrottle / 1000.0;
 
