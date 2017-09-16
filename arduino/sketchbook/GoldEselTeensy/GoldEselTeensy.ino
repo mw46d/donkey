@@ -3,6 +3,9 @@
 #include "RF24.h"
 #include <PulsePosition.h>
 
+#include "encoder_driver.h"
+#include "PID.h"
+
 #define LED_GREEN 0
 #define LED_YELLOW 1
 #define RPM_SENSOR 2
@@ -28,6 +31,7 @@
 PulsePositionOutput servoThrottle;
 PulsePositionOutput servoSteering;
 PulsePositionInput rcInput;
+PID throttlePid(0.7, 0.2, 0.8);
 
 RF24 radio(7,8);
 byte addresses[][6] = {"Entd1", "Entd2"};
@@ -46,6 +50,10 @@ unsigned long stop_time = 0;
 bool going = false;
 bool stopped = true;
 unsigned long last_rpm_duration = -1;
+
+int pid_trottle_min = THROTTLE_BRAKE;
+int pid_trottle_neu = THROTTLE_NEUTRAL;
+int pid_trottle_max = 2 * THROTTLE_NEUTRAL - THROTTLE_BRAKE;
 
 void setup() {
   Serial.begin(115200);
@@ -74,6 +82,8 @@ void setup() {
   digitalWrite(LED_GREEN, LOW);
   digitalWrite(LED_YELLOW, LOW);
 
+  initEncoder();
+
   radio.begin();
   radio.setPALevel(RF24_PA_MAX);
   radio.setDataRate(RF24_250KBPS);
@@ -86,9 +96,109 @@ void setup() {
   radio.startListening();
 }
 
+float fconstrain(float v, float nmin, float nmax) {
+  return max(min(nmax, v), nmin);
+}
+
 void loop() {
-  bool notBypass = digitalRead(EXTRA_PIN);
+  static float inSteering = 0.0;
+  static float inThrottle = 0.0;
+  static float targetSpeed = 0.0;
+  static float pidThrottle = 0.0; // in [-1000.0 .. 1000.0] Still needs to scaled to RC values!
+  static unsigned long rcTime = 0L;
+  static unsigned long piTime = 0L;
+  static unsigned long encLastTime = 0L;
+  static long encSum = 0L;
+  static unsigned int piSteering = 0;
+  static unsigned int piThrottle = 0;
+  static unsigned int pidThrottleMin = 1000;
+  static unsigned int pidThrottleNeu = 1500;
+  static unsigned int pidThrottleMax = 2000;
+
   unsigned long time = millis();
+  byte count = rcInput.available();
+
+  if (count > 0) {
+    inSteering = STEER(rcInput.read(1));
+    inThrottle = rcInput.read(3);
+    rcTime = time;
+
+    static unsigned long rcOutTime = 0;
+
+    if (time - rcOutTime >= 10) {
+      Serial.print("I "); Serial.print(inSteering, 1); Serial.print("  "); Serial.print(inThrottle, 1); Serial.print("  ");
+      Serial.print(rcInput.read(5), 1); Serial.print("  "); Serial.print(rcInput.read(6), 1); Serial.print("  ");
+      Serial.print(rcInput.read(7), 1); Serial.print("  "); Serial.println(rcInput.read(8), 1);
+
+      rcOutTime = time;
+    }
+  }
+
+  while (Serial.available() >= 5) {
+    char b = Serial.read();
+
+    if (b == 'K') {
+      // PID constants
+      // K <Kp> <Ki> <Kd>
+      throttlePid(Serial.parseFloat(), Serial.parseFloat(), Serial.parseFloat());
+      throttlePid.reset_I();
+    }
+    else if (b == 'L') {
+      // Throttle RC limits
+      // L <min> <neutral> <max>
+      pidThrottleMin = Serial.parseInt();
+      pidThrottleNeu = Serial.parseInt();
+      pidThrottleMax = Serial.parseInt();
+    }
+    else if (b == 'S') {
+      // Steering value in us
+      // S <steer>\n
+      piSteering = Serial.parseInt();
+      piTime = time;
+    }
+    else if (b == 'T') {
+      // Throttle value in us
+      // T <throttle>\n
+      piThrottle = Serial.parseInt();
+      piTime = time;
+    }
+    else if (b == 'V') {
+      // Target speed
+      // V <speed>\n
+      piTime = time;
+
+      b = Serial.read();  // either ' ' (normal) or 'X' (for testing keep the value alive for 10 seconds)
+      if (b == 'X') {
+        piTime += 10000;
+      }
+
+      targetSpeed = Serial.parseFloat();
+    }
+
+    // Read the newline
+    do {
+      b = Serial.read();
+    }
+    while (b != '\n');
+  }
+
+  long time_stamp = millis();
+  long encDt = time_stamp - encLastTime;
+  long encValue = 0;
+  bool encRead = false;
+
+  if (encDt >= 100) {
+    encValue = readEncoder();
+    encRead = true;
+
+    encSum += encValue;
+
+    Serial.print("E "); Serial.print(encValue); Serial.print(" "); Serial.print(encDt); Serial.print(" "); Serial.println(encSum);
+
+    encLastTime = time_stamp;
+  }
+
+  bool notBypass = digitalRead(EXTRA_PIN);
 
   if ((rx_time < time - 3000 || rx_buff != 'G') && notBypass) {
     digitalWrite(LED_RED, HIGH);
@@ -99,12 +209,15 @@ void loop() {
       stopped = false;
       last_rpm_duration = -1;
       stop_time = time;
+
+      throttlePid.reset_I();
+      pidThrottle = 0.0;
     }
 
     if (servoSteering.read() != STEERING_VALUE) {
       servoSteering.write(STEERING_VALUE);
     }
-    
+
     unsigned long dtime = stop_time - time;
 
     if (dtime < 200) {
@@ -139,60 +252,45 @@ void loop() {
     digitalWrite(LED_RED, LOW);
     digitalWrite(LED_GREEN, HIGH);
 
-    static float inSteering = 0.0;
-    static float inThrottle = 0.0;
-    static unsigned long rcTime = 0;
-    
-    byte count = rcInput.available();
-
-    if (count > 0) {
-      inSteering = STEER(rcInput.read(1));
-      inThrottle = rcInput.read(3);
-      rcTime = time;
-    }
-
     if (!going) {
       servoThrottle.write(THROTTLE_NEUTRAL);
       go_time = time;
       going = true;
     }
 
-    static unsigned int piSteering = 0;
-    static unsigned int piThrottle = 0;
-    static unsigned long piTime = 0;
-
-    while (Serial.available() >= 10) {
-      char b = Serial.read();
-
-      if (b == 'S') {
-        // Steering value in us
-        // S <steer>\n
-        piSteering = Serial.parseInt();
-        piTime = time;
-      }
-      else if (b == 'T') {
-        // Throttle value in us
-        // T <throttle>\n
-        piThrottle = Serial.parseInt();
-        piTime = time;
-      }
-
-      Serial.read();
-    }
-
-    unsigned long dtime = go_time - time;
+    unsigned long dtime = time - go_time;
 
     if (dtime > 200) {
-      Serial.print("I "); Serial.print(inSteering, 1); Serial.print("  "); Serial.print(inThrottle, 1); Serial.print("  ");
-      Serial.print(rcInput.read(5), 1); Serial.print("  "); Serial.print(rcInput.read(6), 1); Serial.print("  ");
-      Serial.print(rcInput.read(7), 1); Serial.print("  "); Serial.println(rcInput.read(8), 1);
-
       if (time - rcTime > 100) {
         inSteering = STEERING_VALUE;
         inThrottle = THROTTLE_NEUTRAL;
       }
-      
-      if (time - piTime < 100) {
+
+      if (piTime > time || time - piTime < 100) {
+        if (encRead && targetSpeed != 0.0) {
+          // Speed
+          // 40 ticks/wheel rotation,
+          // circumfence 0.377m
+          // every 0.1 seconds
+          // float currentSpeed = 0.377 * (float(encValue) / 40) / (encDt / 1000.0);
+          float currentSpeed = 9.425 * float(encValue) / encDt;
+          float e = targetSpeed - currentSpeed;
+
+          // Serial.print("Speed= "); Serial.println(currentSpeed);
+
+          pidThrottle += throttlePid.get_pid(e, 5.0);
+          pidThrottle = fconstrain(pidThrottle, -250.0, 250.0);
+
+          float t = pidThrottle / 1000.0;
+
+          if (t < 0.0) {
+            piThrottle = pidThrottleNeu + (pidThrottleNeu - pidThrottleMin) * t;
+          }
+          else {
+            piThrottle = pidThrottleNeu + (pidThrottleMax - pidThrottleNeu) * t;
+          }
+        }
+
         if (piSteering != 0 && piThrottle != 0) {
           inSteering = piSteering;
           inThrottle = piThrottle;
@@ -201,8 +299,12 @@ void loop() {
       else {
         piSteering = 0;
         piThrottle = 0;
+        targetSpeed = 0.0;
+        throttlePid.reset_I();
+        pidThrottle = 0.0;
       }
 
+      // Serial.print("O "); Serial.print(inThrottle); Serial.print(" "); Serial.println(inSteering);
       servoThrottle.write(inThrottle);
       servoSteering.write(inSteering);
     }
