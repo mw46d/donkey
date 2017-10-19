@@ -89,8 +89,8 @@ class Webcam(BaseCamera):
                 self.frame = pygame.surfarray.pixels3d(pygame.transform.rotate(pygame.transform.flip(snapshot1, True, False), 90))
 
             stop = datetime.now()
-            s = 1 / self.framerate - (stop - start).total_seconds()
-            if s > 0:
+            s = 1.0 / self.framerate - (stop - start).total_seconds()
+            if s > 0.0:
                 time.sleep(s)
 
         self.cam.stop()

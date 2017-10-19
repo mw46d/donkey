@@ -138,6 +138,11 @@ class Teensy:
         if Teensy.astar_device == None:
             Teensy.astar_device = serial.Serial('/dev/astar', 115200, timeout = 0.01)
 
+    def set_speed(self, speed):
+        print("Teensy::set_speed= %f" % speed)
+        with Teensy.teensy_lock:
+            Teensy.teensy_device.write(("V %.2f\n" % speed).encode('ascii'))
+
     def set_pulse(self, pulse):
         # Recalculate pulse width from the Adafruit values
         w = pulse * (1 / (self.frequency * 4096)) # in seconds
@@ -256,7 +261,7 @@ class PWMThrottle:
         time.sleep(1)
 
 
-    def run(self, throttle, mode = None):
+    def run(self, throttle, mode = None, speed = 0):
         if throttle > 0:
             pulse = utils.map_range(throttle,
                                     0, self.MAX_THROTTLE,
@@ -267,7 +272,10 @@ class PWMThrottle:
                                     self.min_pulse, self.zero_pulse)
 
         if mode != 'user':
-            self.controller.set_pulse(pulse)
+            if speed != 0:
+                self.controller.set_speed(speed)
+            else:
+                self.controller.set_pulse(pulse)
 
         self.controller.set_brake(throttle < 0)
         self.controller.set_headlight(throttle < -0.02 or throttle > 0.02)

@@ -15,7 +15,7 @@ V.add(cam, outputs = [ 'cam/image_array' ], threaded = True)
 rcin_controller = dk.parts.TeensyRCin()
 V.add(rcin_controller, outputs = [ 'rcin/angle', 'rcin/throttle' ], threaded = True)
 
-speed_controller = dk.parts.AStarSpeed()
+speed_controller = dk.parts.TeensySpeed()
 V.add(speed_controller, outputs = [ 'odo/speed' ], threaded = True)
 
 ctr = dk.parts.LocalWebController()
@@ -38,7 +38,7 @@ throttle = dk.parts.PWMThrottle(controller = throttle_controller,
                                 max_pulse = 496, zero_pulse = 369, min_pulse = 242)
 
 V.add(steering, inputs = [ 'target/angle', 'user/mode' ])
-V.add(throttle, inputs = [ 'target/throttle', 'user/mode' ])
+V.add(throttle, inputs = [ 'target/throttle', 'user/mode', 'target/speed' ])
 
 #add tub to save data
 path = '~/mydonkey/sessions/' + datetime.now().strftime('%Y_%m_%d__%H_%M_%S')
@@ -48,6 +48,6 @@ tub = dk.parts.OriginalWriter(path, inputs = inputs, types = types)
 V.add(tub, inputs = inputs)
 
 #run the vehicle for 20 seconds
-V.start(rate_hz = 20) # , max_loop_count = 1000)
+V.start(rate_hz = 30) # , max_loop_count = 1000)
 
 #you can now go to localhost:8887 to move a square around the image
