@@ -1,3 +1,4 @@
+#!/usr/bin/python
 """
 actuators.py
 
@@ -6,10 +7,10 @@ are wrapped in a mixer class before being used in the drive loop.
 
 """
 
+import donkeycar.subscribers as subscribers
+import donkeycar.utils as utils
+import signal
 import time
-
-from ... import utils
-
 
 class PCA9685:
     '''
@@ -219,23 +220,34 @@ class PWMSteering:
         self.controller = controller
         self.left_pulse = left_pulse
         self.right_pulse = right_pulse
+        self.throttle = 0.0
+        self.angle = 0.0
+        self.speed = 0.0
+        self.mode = None
+        self.on = True
 
+        self.pilot_subscriber = subscribers.PilotSubscriberThread(args = (self, "pilot.steering", None, True), name = "PWMSteering::PilotSubscriber")
+        self.mode_subscriber = subscribers.ModeSubscriberThread(args = (self, "mode.steering"), name = "PWMSteering::ModeSubscriber")
+        self.pilot_subscriber.start()
+        self.mode_subscriber.start()
 
-    def run(self, angle, mode = None):
-        #map absolute angle to angle that vehicle can implement.
-        pulse = utils.map_range(angle,
+    def run(self):
+        pulse = utils.map_range(self.angle,
                                 self.LEFT_ANGLE, self.RIGHT_ANGLE,
                                 self.left_pulse, self.right_pulse)
 
-        if mode != 'user':
+        if self.mode != None and self.mode != 'user':
             self.controller.set_pulse(pulse)
 
-        self.controller.set_turn_left(angle < -0.2)
-        self.controller.set_turn_right(angle > 0.2)
+        self.controller.set_turn_left(self.angle < -0.2)
+        self.controller.set_turn_right(self.angle > 0.2)
 
     def shutdown(self):
-        self.run(0) #set steering straight
-
+        print("PWMSteering shutdown started")
+        self.on = False
+        self.angle = 0.0
+        self.run()
+        print("PWMSteering shutdown done")
 
 
 class PWMThrottle:
@@ -255,35 +267,47 @@ class PWMThrottle:
         self.max_pulse = max_pulse
         self.min_pulse = min_pulse
         self.zero_pulse = zero_pulse
+        self.throttle = 0.0
+        self.angle = 0.0
+        self.speed = 0.0
+        self.mode = None
+        self.on = True
 
         #send zero pulse to calibrate ESC
         self.controller.set_pulse(self.zero_pulse)
         time.sleep(1)
 
+        self.pilot_subscriber = subscribers.PilotSubscriberThread(args = (self, "pilot.throttle", None, True), name = "PWMThorttle::PilotSubscriber")
+        self.mode_subscriber = subscribers.ModeSubscriberThread(args = (self, "mode.throttle"), name = "PWMThrottle::ModeSubscriber")
+        self.pilot_subscriber.start()
+        self.mode_subscriber.start()
 
-    def run(self, throttle, mode = None, speed = 0):
-        if throttle > 0:
-            pulse = utils.map_range(throttle,
+    def run(self):
+        if self.throttle > 0:
+            pulse = utils.map_range(self.throttle,
                                     0, self.MAX_THROTTLE,
                                     self.zero_pulse, self.max_pulse)
         else:
-            pulse = utils.map_range(throttle,
+            pulse = utils.map_range(self.throttle,
                                     self.MIN_THROTTLE, 0,
                                     self.min_pulse, self.zero_pulse)
 
-        if mode != 'user':
-            if speed != 0:
-                self.controller.set_speed(speed)
+        if self.mode != None and self.mode != 'user':
+            if self.speed != 0:
+                self.controller.set_speed(self.speed)
             else:
                 self.controller.set_pulse(pulse)
 
-        self.controller.set_brake(throttle < 0)
-        self.controller.set_headlight(throttle < -0.02 or throttle > 0.02)
+        self.controller.set_brake(self.throttle < 0)
+        self.controller.set_headlight(self.throttle < -0.02 or self.throttle > 0.02)
 
     def shutdown(self):
-        self.run(0) #stop vehicle
-
-
+        print("PWMThrottle shutdown started")
+        self.on = False
+        self.throttle = 0.0
+        self.speed = 0.0
+        self.run()
+        print("PWMThrottle shutdown done")
 
 class Adafruit_DCMotor_Hat:
     '''
@@ -327,3 +351,30 @@ class Adafruit_DCMotor_Hat:
 
     def shutdown(self):
         self.mh.getMotor(self.motor_num).run(Adafruit_MotorHAT.RELEASE)
+
+
+def main():
+    steering_controller = Teensy('S')
+    steering = PWMSteering(controller = steering_controller,
+                           left_pulse = 496, right_pulse = 242)
+
+    throttle_controller = Teensy('T')
+    throttle = PWMThrottle(controller = throttle_controller,
+                           max_pulse = 496, zero_pulse = 369, min_pulse = 242)
+
+    with utils.GracefulInterruptHandler(sig = signal.SIGINT) as h1:
+        with utils.GracefulInterruptHandler(sig = signal.SIGTERM) as h2:
+            while True:
+                if h1.interrupted:
+                    break
+                if h2.interrupted:
+                    break
+
+                print("Endless loop")
+                time.sleep(5)
+
+    steering.shutdown()
+    throttle.shutdown()
+
+if __name__ == '__main__':
+    main()

@@ -7,6 +7,7 @@ Functions that don't fit anywhere else.
 from io import BytesIO
 import os
 import glob
+import signal
 import socket
 import zipfile
 
@@ -22,7 +23,7 @@ IMAGES
 def scale(im, size=128):
     '''
     accepts: PIL image, size of square sides
-    returns: PIL image scaled so sides lenght = size 
+    returns: PIL image scaled so sides lenght = size
     '''
     size = (size,size)
     im.thumbnail(size, Image.ANTIALIAS)
@@ -53,8 +54,12 @@ def arr_to_img(arr):
     accepts: numpy array with shape (Hight, Width, Channels)
     returns: binary stream (used to save to database)
     '''
-    arr = np.uint8(arr)
-    img = Image.fromarray(arr)
+    if arr is None:
+        img = Image.open(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'goldesel.jpg'))
+        img.load()
+    else:
+        arr = np.uint8(arr)
+        img = Image.fromarray(arr)
     return img
 
 def img_to_arr(img):
@@ -126,11 +131,11 @@ def make_dir(path):
 
 
 def zip_dir(dir_path, zip_path):
-    """ 
+    """
     Create and save a zipfile of a one level directory
     """
     file_paths = glob.glob(dir_path + "/*") #create path to search for files.
-    
+
     zf = zipfile.ZipFile(zip_path, 'w')
     dir_name = os.path.basename(dir_path)
     for p in file_paths:
@@ -163,8 +168,8 @@ def bin_Y(Y):
         arr = np.zeros(15)
         arr[linear_bin(y)] = 1
         d.append(arr)
-    return np.array(d) 
-        
+    return np.array(d)
+
 def unbin_Y(Y):
     d=[]
     for y in Y:
@@ -174,8 +179,8 @@ def unbin_Y(Y):
     return np.array(d)
 
 def map_range(x, X_min, X_max, Y_min, Y_max):
-    ''' 
-    Linear mapping between two ranges of values 
+    '''
+    Linear mapping between two ranges of values
     '''
     X_range = X_max - X_min
     Y_range = Y_max - Y_min
@@ -212,8 +217,35 @@ def merge_two_dicts(x, y):
 
 def param_gen(params):
     '''
-    Accepts a dictionary of parameter options and returns 
+    Accepts a dictionary of parameter options and returns
     a list of dictionary with the permutations of the parameters.
     '''
     for p in itertools.product(*params.values()):
         yield dict(zip(params.keys(), p ))
+
+class GracefulInterruptHandler(object):
+    def __init__(self, sig=signal.SIGINT):
+        self.sig = sig
+
+    def __enter__(self):
+        self.interrupted = False
+        self.released = False
+        self.original_handler = signal.getsignal(self.sig)
+
+        def handler(signum, frame):
+            self.release()
+            self.interrupted = True
+
+        signal.signal(self.sig, handler)
+        return self
+
+    def __exit__(self, type, value, tb):
+        self.release()
+
+    def release(self):
+        if self.released:
+            return False
+
+        signal.signal(self.sig, self.original_handler)
+        self.released = True
+        return True

@@ -8,18 +8,24 @@ and throttle of a vehicle. Pilots can include one or more
 models to help direct the vehicles motion.
 
 '''
-import os
+from datetime import datetime
+import json
+import kestrel
 import math
 import random
 from operator import itemgetter
-from datetime import datetime
+import os
+import threading
 import time
 
 import numpy as np
 import tensorflow as tf
 import keras
 
+import donkeycar.subscribers as subscribers
 import donkeycar.utils as utils
+
+from PIL import Image
 
 NaN = float('nan')
 RC = 1.0 / (2.0 * math.pi * 20.0)
@@ -166,7 +172,6 @@ class KerasCategorical(BasePilot):
         # print("Model= ")
         # self.model.summary()
 
-
 class PilotHandler():
     """
     Convenience class to load default pilots
@@ -177,6 +182,24 @@ class PilotHandler():
         self.models_path = os.path.expanduser(models_path)
         self.throttle_pid = PID(0.7, 0.2, 0.8)
         self.pid_throttle = 0.0
+        self.frame = None
+        self.throttle = 0.0
+        self.angle = 0.0
+        self.brake = False
+        self.speed = 0.0
+        self.on = True
+        self.count = 0
+        self.imu = None
+        self.epoch = datetime(1970, 1, 1)
+        self.kestrel_client = kestrel.Client(subscribers.servers)
+        self.controller_subscriber = subscribers.ControllerSubscriberThread(args = (self, "controller"))
+        self.image_subscriber = subscribers.ImageSubscriberThread(args = (self, "cam-image.pilot", None, True), name = "PilotImage")
+        self.speed_subscriber = subscribers.SpeedSubscriberThread(args = (self, "teensy-speed.pilot"))
+        self.imu_subscriber = subscribers.IMUSubscriberThread(args = (self, "astar-imu.pilot"))
+        self.controller_subscriber.start()
+        self.image_subscriber.start()
+        self.speed_subscriber.start()
+        self.imu_subscriber.start()
 
     def constrain(self, v, nmin, nmax):
         return max(min(nmax, v), nmin)
@@ -200,30 +223,48 @@ class PilotHandler():
         #pilot_list.append(OpenCVLineDetector(name='OpenCV'))
         return pilot_list
 
-    def run(self, img_arr, throttle, angle, speed, brake):
+    def run(self):
+        angle = self.angle
+        speed = self.speed
+        throttle = self.throttle
+
         if PilotHandler.active_pilot == None:
             self.throttle_pid.reset_i()
-            self.pid_throttle = throttle
-
-            return throttle, angle, speed
+            self.pid_throttle = self.throttle
         else:
-            if brake:
+            if self.brake:
                 self.throttle_pid.reset_i()
-
-                return 0.0, 0.0, 0.0
+                throttle = 0.0
+                angle = 0.0
+                speed = 0.0
             else:
                 with PilotHandler.active_pilot.graph.as_default():
-                    a, t, s =  PilotHandler.active_pilot.decide(img_arr)
-                    fixed_target_speed = 2.2
+                    angle, throttle, speed =  PilotHandler.active_pilot.decide(self.frame)
 
-                    e = fixed_target_speed - speed
-                    self.pid_throttle += self.throttle_pid.get_pid(e, 5.0)
-                    self.pid_throttle = self.constrain(self.pid_throttle, -500.0, 500.0)
-                    t = self.pid_throttle / 1000.
+                fixed_target_speed = 2.2
 
-                    print("pilot values= t= %s(%s)  a= %s(%s)  s= %s(%s)  odo= %s" % (type(t), str(t), type(a), str(a), type(s), str(s), str(speed)))
-                    return t, a, fixed_target_speed
+                e = fixed_target_speed - self.speed
+                self.pid_throttle += self.throttle_pid.get_pid(e, 5.0)
+                self.pid_throttle = self.constrain(self.pid_throttle, -500.0, 500.0)
+                throttle = self.pid_throttle / 1000.
+                speed = fixed_target_speed
+
+                if self.count % 10 == 0:
+                    print("pilot values= throttle= %f  angle= %f  speed= %f  odo= %f" %
+                        (throttle, angle, speed, self.speed))
+
+                self.count += 1
+
+        d = {}
+        d['timestamp'] = (datetime.utcnow() - self.epoch).total_seconds()
+        d['steering'] = angle
+        d['throttle'] = throttle
+        d['speed'] = speed
+        self.kestrel_client.add('pilot', json.dumps(d))
 
     def shutdown(self):
         # indicate that the thread should be stopped
         print('stopping PilotHandler')
+        self.on = False;
+        self.kestrel_client.close()
+        time.sleep(1)

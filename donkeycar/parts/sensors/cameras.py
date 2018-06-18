@@ -1,4 +1,19 @@
+#!/usr/bin/python
+
+import base64
+import cv2
+from datetime import datetime, timedelta
+import donkeycar.subscribers as subscribers
+import donkeycar.utils as utils
+import json
+import kestrel
+import imutils
+import numpy as np
+import SharedArray as sa
+import signal
+import sys
 import time
+from threading import Thread
 
 class BaseCamera:
 
@@ -53,47 +68,82 @@ class PiCamera(BaseCamera):
 
 class Webcam(BaseCamera):
     def __init__(self, resolution = (160, 120), framerate = 20):
-        import pygame
-        import pygame.camera
-
         super().__init__()
 
-        pygame.init()
-        pygame.camera.init()
-        l = pygame.camera.list_cameras()
-        self.cam = pygame.camera.Camera(l[0], resolution, "RGB")
+        self.frame = None
+
+        self.cam = cv2.VideoCapture(0);
+        self.cam.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
+        self.cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+        self.cam.set(cv2.CAP_PROP_FPS, 120)
         self.resolution = resolution
-        self.cam.start()
         self.framerate = framerate
+        self.epoch = datetime(1970, 1, 1)
+        # self.input_window = cv2.namedWindow("Input")
+        # self.output_window = cv2.namedWindow("Output")
+
+        try:
+	        sa.delete("shm://camera-image-array")
+        except:
+	        pass
+
+        self.shared_image_array = sa.create("shm://camera-image-array", (8, 120, 160, 3), np.uint8)
+        self.shared_index = 0
 
         # initialize variable used to indicate
         # if the thread should be stopped
-        self.frame = None
         self.on = True
 
         print('WebcamVideoStream loaded.. .warming camera')
 
-        time.sleep(2)
+        time.sleep(3)
 
     def update(self):
-        from datetime import datetime, timedelta
-        import pygame.image
+        c = kestrel.Client(subscribers.servers)
+        t_start = 0
+        t_count = 0
+
         while self.on:
             start = datetime.now()
 
-            if self.cam.query_image():
-                # snapshot = self.cam.get_image()
-                # self.frame = list(pygame.image.tostring(snapshot, "RGB", False))
-                snapshot = self.cam.get_image()
-                snapshot1 = pygame.transform.scale(snapshot, self.resolution)
-                self.frame = pygame.surfarray.pixels3d(pygame.transform.rotate(pygame.transform.flip(snapshot1, True, False), 90))
+            rval, snapshot = self.cam.read()
+            snapshot = cv2.resize(snapshot, self.resolution, interpolation = cv2.INTER_AREA)
+            # snapshot = cv2.flip(snapshot, 1)
+            # snapshot = cv2.rotate(snapshot, 90)
+
+            # cv2.imshow('Input', snapshot)
+            key = cv2.waitKey(1)
+
+            # print("mw t1 %s" % str(snapshot))
+            t1 = time.time()
+
+            if t_count == 0:
+                print ("time %6.4f" % (float(t1 - t_start) / 100.0))
+                t_start = t1
+
+            t_count = (t_count + 1) % 100
+
+            self.shared_image_array[self.shared_index % 8] = snapshot
+            sa.msync(self.shared_image_array, sa.MS_SYNC | sa.MS_INVALIDATE)
+            self.frame = snapshot
+
+            d = {}
+            d['timestamp'] = (datetime.utcnow() - self.epoch).total_seconds()
+            d['image_index'] = self.shared_index
+            d['resolution'] = self.resolution
+            c.add('cam-image', json.dumps(d))
+
+            f = self.shared_image_array[self.shared_index % 8]
+            # cv2.imshow('Output', f)
+            self.shared_index += 1
 
             stop = datetime.now()
-            s = 1.0 / self.framerate - (stop - start).total_seconds()
+            s = 1.0 / self.framerate - (stop - start).total_seconds() - 0.0002
             if s > 0.0:
                 time.sleep(s)
 
         self.cam.stop()
+        c.close()
 
     def run_threaded(self):
         return self.frame
@@ -103,4 +153,24 @@ class Webcam(BaseCamera):
         self.on = False
         print('stoping Webcam')
         time.sleep(.5)
+
+def main():
+    cam = Webcam(framerate = 30)
+    t = Thread(target = cam.update, args=())
+    t.start()
+
+    with utils.GracefulInterruptHandler(sig = signal.SIGINT) as h1:
+        with utils.GracefulInterruptHandler(sig = signal.SIGTERM) as h2:
+            while True:
+                if h1.interrupted:
+                    break
+                if h2.interrupted:
+                    break
+
+                time.sleep(5)
+
+    cam.shutdown()
+
+if __name__ == '__main__':
+    main()
 

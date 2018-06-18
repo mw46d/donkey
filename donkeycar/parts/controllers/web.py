@@ -10,11 +10,15 @@ remotes.py
 The client and web server needed to control a car remotely.
 """
 
+from datetime import datetime
 import io
 import os
 import json
+import kestrel
 import math
+import signal
 import time
+from threading import Thread
 
 from PIL import Image
 
@@ -22,11 +26,12 @@ import requests
 import tornado.ioloop
 import tornado.web
 import tornado.gen
+import threading
 
-from ... import old_pilots
-from ... import sessions
-from ... import utils
-
+import donkeycar.old_pilots as old_pilots
+import donkeycar.sessions as sessions
+import donkeycar.subscribers as subscribers
+import donkeycar.utils as utils
 
 if hasattr(os, 'scandir'):
     from os import scandir
@@ -99,7 +104,6 @@ class RemoteWebServer():
 
         return angle, throttle, drive_mode
 
-
 class LocalWebController(tornado.web.Application):
 
     def __init__(self, mydonkey_path='~/mydonkey/'):
@@ -119,13 +123,23 @@ class LocalWebController(tornado.web.Application):
 
         self.angle = 0.0
         self.throttle = 0.0
+        self.rcin_angle = 0.0
+        self.rcin_throttle = 0.0
         self.mode = 'user'
+        self.frame = None
         self.recording = False
         self.brake = False
         self.pilot = None
 
-        ph = old_pilots.PilotHandler(self.models_path)
-        self.pilots = ph.default_pilots()
+        self.ph = old_pilots.PilotHandler(self.models_path)
+        self.pilots = self.ph.default_pilots()
+        self.kestrel_client = kestrel.Client(subscribers.servers)
+        self.on = True
+        self.epoch = datetime(1970, 1, 1)
+        self.image_subscriber = subscribers.ImageSubscriberThread(args = (self, 'cam-image.controller', None, True), name = "WebImage")
+        self.rcin_subscriber = subscribers.RCinSubscriberThread(args = (self, 'teensy-rcin'))
+        self.image_subscriber.start()
+        self.rcin_subscriber.start()
 
         handlers = [
             (r"/drive", DriveAPI),
@@ -150,21 +164,30 @@ class LocalWebController(tornado.web.Application):
         self.listen(self.port)
         tornado.ioloop.IOLoop.instance().start()
 
-    def run_threaded(self, img_arr = None, rcin_angle = 0.0, rcin_throttle = 0.0):
-        self.img_arr = img_arr
-
+    def run(self):
         if self.mode == 'user':
-            if rcin_angle != 0.0 or rcin_throttle != 0.0:
-                self.angle = rcin_angle
-                self.throttle = rcin_throttle
+            if self.rcin_angle != 0.0 or self.rcin_throttle != 0.0:
+                self.angle = self.rcin_angle
+                self.throttle = self.rcin_throttle
 
         # print(self.angle)
+        d = {}
+        d['timestamp'] = (datetime.utcnow() - self.epoch).total_seconds()
+        d['steering'] = self.angle
+        d['throttle'] = self.throttle
+        d['brake'] = self.brake
+        self.kestrel_client.add('controller', json.dumps(d))
+
         return self.angle, self.throttle, self.mode, self.recording, self.brake
 
     def shutdown(self):
         # indicate that the thread should be stopped
         print('stopping LocalWebController')
-
+        self.ph.shutdown()
+        self.on = False
+        self.kestrel_client.close()
+        time.sleep(2)
+        tornado.ioloop.IOLoop.instance().stop()
 
 class DriveAPI(tornado.web.RequestHandler):
 
@@ -181,11 +204,27 @@ class DriveAPI(tornado.web.RequestHandler):
         data = tornado.escape.json_decode(self.request.body)
         self.application.angle = data['angle']
         self.application.throttle = data['throttle']
-        self.application.mode = data['drive_mode']
-        self.application.recording = data['recording']
         self.application.brake = data['brake']
+
+        m = data['drive_mode']
+        if self.application.mode != m:
+            self.application.mode = m
+            d = {}
+            d['timestamp'] = (datetime.utcnow() - self.application.epoch).total_seconds()
+            d['mode'] = m
+            self.application.kestrel_client.add('mode', json.dumps(d))
+
+        r = data['recording']
+        if self.application.recording != r:
+            self.application.recording = r
+            d = {}
+            d['timestamp'] = (datetime.utcnow() - self.application.epoch).total_seconds()
+            d['recording'] = r
+            self.application.kestrel_client.add('recording', json.dumps(d))
+
         if self.application.mode != 'user' and self.application.pilot != None:
-            old_pilots.PilotHandler.active_pilot = self.application.pilot
+            if old_pilots.PilotHandler.active_pilot != self.application.pilot:
+                old_pilots.PilotHandler.active_pilot = self.application.pilot
         else:
             old_pilots.PilotHandler.active_pilot = None
 
@@ -198,7 +237,8 @@ class PilotAPI(tornado.web.RequestHandler):
         pilot.load()
         self.application.pilot = pilot
         if self.application.mode != 'user' and self.application.pilot != None:
-            old_pilots.PilotHandler.active_pilot = self.application.pilot
+            if old_pilots.PilotHandler.active_pilot != self.application.pilot:
+                old_pilots.PilotHandler.active_pilot = self.application.pilot
         else:
             old_pilots.PilotHandler.active_pilot = None
 
@@ -219,7 +259,7 @@ class VideoAPI(tornado.web.RequestHandler):
 
             interval = .1
             if self.served_image_timestamp + interval < time.time():
-                img = utils.arr_to_binary(self.application.img_arr)
+                img = utils.arr_to_binary(self.application.frame)
 
                 self.write(my_boundary)
                 self.write("Content-type: image/jpeg\r\n")
@@ -323,4 +363,24 @@ class SessionView(tornado.web.RequestHandler):
                 f = '_'.join(f[0:2]) + ".json"
                 os.remove(os.path.join(path, f))
                 print('%s removed' % f)
+
+def main():
+    web = LocalWebController()
+    t = Thread(target = web.update, args=())
+    t.start()
+
+    with utils.GracefulInterruptHandler(sig = signal.SIGINT) as h1:
+        with utils.GracefulInterruptHandler(sig = signal.SIGTERM) as h2:
+            while True:
+                if h1.interrupted:
+                    break
+                if h2.interrupted:
+                    break
+
+                time.sleep(5)
+
+    web.shutdown()
+
+if __name__ == '__main__':
+    main()
 
