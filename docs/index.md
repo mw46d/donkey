@@ -1,73 +1,67 @@
 # About Donkey
 
-Donkey is a high level self driving library written in Python and capable of 
-controlling ackerman or differential drive vehicles. It was developed with a 
-focus on enabling fast experimentation and easy contribution.
+Donkey is a high level self driving library written in Python. It was
+developed with a focus on enabling fast experimentation and easy contribution.
 
-#### Use Donkey if you want to...
+---------
 
-* Build your own small scale self driving car.
-* Implement computer vision or neural network based auto-pilots.
-* Use an arbitrary number of sensors on your car. 
+### Build your own Donkey2
 
-###Guiding Developement Principles
-* **Modularity**: A self driving system is composed of standalone, 
-independently configurable modules that can be connected modules.
+Donkey2 is the standard car that most people build first. The parts cost $200
+and take 2 hours to assemble. Here are the main steps to build your own car:
 
-* **Minimalism**: Each component should be kept short (<100 lines of code). 
-Each peice of code should be transparent apon first reading. No black magic, it slows the speed of innovation. 
+1. [Assemble hardware.](guide/build_hardware.md)
+2. [Install software.](guide/install_software.md)
+3. [Calibrate your car.](guide/calibrate.md)
+4. [Start driving.](guide/get_driving.md)
+5. [Train an autopilot.](guide/train_autopilot.md)
+6. [Experiment with simulator.](guide/simulator.md)
 
-* **Extensiblity**: New components should be simple to create by following a 
-template. 
-
-* **Python**: Keep it simple. 
-
-***These guidelines are nearly copied from [Keras](http://keras.io) because they are so good*** 
+---------------
 
 
-## Installation
 
-### Developement version
+### Hello World.
 
-```bash
-git clone https://github.com/wroscoe/donkey donkeycar
-cd donkeycar
-git fetch origin dev
-git checkout dev
-pip install -e .
-```
-
-Now create a fake car on your computer to see if it works. 
-```bash
-donkey createcar --path sdonk --template record_square
-cd ~/sdonk
-python car.py drive
-python car.py train --tub <your_tub_name> --model <your_new_model_name>
-```
-
-## Getting started in 30 seconds. 
-
-### Record images from the camera
+Donkeycar is designed to make adding new parts to your car easy. Here's and
+example car application that captures images from the camera and saves them.
 
 ```python
-
 import donkey as dk
 
+#initialize the vehicle
 V = dk.Vehicle()
 
-#add a camera
+#add a camera part
 cam = dk.parts.PiCamera()
 V.add(cam, outputs=['image'], threaded=True)
 
-#record the images
-tub = dk.parts.Tub(path='~/mydonkey/gettings_started', 
-                   inputs=['image'], 
+#add tub part to record images
+tub = dk.parts.Tub(path='~/d2/gettings_started',
+                   inputs=['image'],
                    types=['image_array'])
 V.add(tub, inputs=inputs)
 
-#start the drive loop
+#start the vehicle's drive loop
 V.start(max_loop_count=100)
 ```
+----------------
 
-### More examples
-You can find more examples in the examples folder.
+### Installation
+
+For linux/OS users clone the master branch to get the latest version.
+```bash
+git clone https://github.com/wroscoe/donkey donkeycar
+pip install -e donkeycar
+```
+
+[How to install on Windows](guide/install_software.md)
+
+-----------------------
+
+### Why the name Donkey?
+
+The ultimate goal of this project is to build something useful. Donkey's were
+one of the first domesticated pack animals, they're notoriously stubborn, and
+they are kid safe. Until the car can navigate from one side of a city to the
+other, we'll hold off naming it after some celestial being.
